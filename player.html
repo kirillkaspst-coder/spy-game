@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Шпион · QUENTI</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js"
+            }
+        }
+    </script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        /* ===== ОСНОВНЫЕ СТИЛИ (как в host.html) ===== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+            color: white;
+            background: #050b1a;
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        #canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: auto;
+        }
+
+        .content {
+            position: relative;
+            z-index: 10;
+            max-width: 600px;
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        .glass-card {
+            background: rgba(15, 25, 45, 0.55);
+            backdrop-filter: blur(12px);
+            border-radius: 2rem;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+        }
+
+        /* Приветственный экран */
+        .intro-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at 30% 10%, #0a0f1e, #03050b);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(8px);
+            transition: opacity 0.5s;
+        }
+        .intro-card {
+            background: rgba(10, 20, 30, 0.85);
+            backdrop-filter: blur(16px);
+            border-radius: 2.5rem;
+            border: 1px solid rgba(255, 215, 0, 0.4);
+            padding: 2rem;
+            max-width: 650px;
+            width: 90%;
+            text-align: center;
+            color: #eee;
+            animation: fadeSlideUp 0.5s ease;
+        }
+        .intro-card h1 { font-size: 2rem; margin-bottom: 0.5rem; background: linear-gradient(135deg, #FFD966, #ffaa33); background-clip: text; -webkit-background-clip: text; color: transparent; }
+        .intro-card h2 { font-size: 1.2rem; margin: 1rem 0 0.5rem; color: #ffd966; }
+        .friends-list { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 10px 0; }
+        .friend-tag { background: #1e2a3a; padding: 4px 12px; border-radius: 40px; font-size: 0.8rem; }
+        .rule-text { background: rgba(0,0,0,0.4); padding: 8px; border-radius: 1rem; margin: 10px 0; font-size: 0.9rem; }
+        .enter-btn { background: #ffaa33; border: none; padding: 12px 28px; border-radius: 60px; font-weight: bold; font-size: 1.1rem; color: #1a1a2e; margin-top: 20px; cursor: pointer; transition: 0.1s; }
+        .enter-btn:active { transform: scale(0.96); }
+
+        /* Анимации появления элементов */
+        @keyframes fadeSlideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-item {
+            opacity: 0;
+            transform: translateY(30px);
+            animation: fadeSlideUp 0.5s cubic-bezier(0.2, 0.9, 0.4, 1.1) forwards;
+        }
+        .delay-1 { animation-delay: 0.05s; }
+        .delay-2 { animation-delay: 0.12s; }
+        .delay-3 { animation-delay: 0.19s; }
+        .delay-4 { animation-delay: 0.26s; }
+        .delay-5 { animation-delay: 0.33s; }
+        .delay-6 { animation-delay: 0.40s; }
+        .delay-7 { animation-delay: 0.47s; }
+        .delay-8 { animation-delay: 0.54s; }
+        .delay-9 { animation-delay: 0.61s; }
+
+        /* Кнопки, аватары, чат (как в host.html) */
+        .glass-btn {
+            background: rgba(20, 30, 55, 0.7);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 10px 18px;
+            border-radius: 60px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.2, 0.9, 0.4, 1.2);
+            margin: 5px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .glass-btn:hover { transform: scale(1.02); background: rgba(50, 70, 120, 0.8); box-shadow: 0 0 12px rgba(59, 130, 246, 0.5); border-color: rgba(59, 130, 246, 0.8); }
+        .glass-btn:active { transform: scale(0.98); }
+        .btn-ready { background: linear-gradient(135deg, rgba(34, 197, 94, 0.8), rgba(22, 163, 74, 0.8)); }
+        .btn-turn { background: linear-gradient(135deg, rgba(59, 130, 246, 0.8), rgba(37, 99, 235, 0.8)); }
+        .btn-vote { background: linear-gradient(135deg, rgba(139, 92, 246, 0.8), rgba(124, 58, 237, 0.8)); }
+        .btn-guess { background: linear-gradient(135deg, rgba(249, 115, 22, 0.8), rgba(234, 88, 12, 0.8)); }
+
+        .avatar-selector { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 12px 0; }
+        .avatar-option { font-size: 1.8rem; cursor: pointer; transition: 0.1s; padding: 4px; border-radius: 50%; }
+        .avatar-option:hover { transform: scale(1.2); background: rgba(255, 255, 255, 0.3); }
+        .selected-avatar { background: rgba(255, 215, 0, 0.4); transform: scale(1.1); border-radius: 50%; }
+
+        .word-card { background: rgba(0, 0, 0, 0.3); border-radius: 1.5rem; padding: 16px; margin: 12px 0; text-align: center; }
+        .secret-word { font-size: 1.5rem; font-weight: 800; color: #facc15; word-break: break-word; }
+        .word-image { font-size: 2.5rem; display: block; margin-bottom: 8px; }
+
+        .players-grid { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 8px 0; }
+        .player-chip { background: rgba(0, 0, 0, 0.3); border-radius: 2rem; padding: 5px 12px; display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; }
+
+        .chat-log { height: 140px; overflow-y: auto; background: rgba(0, 0, 0, 0.3); border-radius: 1rem; padding: 10px; font-size: 0.8rem; margin: 12px 0; }
+        .chat-message { animation: messagePop 0.2s ease-out; padding: 4px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+        @keyframes messagePop { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
+        .chat-input { display: flex; gap: 8px; margin-top: 8px; }
+        .chat-input input { flex: 1; background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 2rem; padding: 8px 14px; color: white; font-size: 0.85rem; }
+        .chat-input input:focus { outline: none; border-color: #3b82f6; }
+
+        .current-turn { font-size: 0.9rem; font-weight: bold; margin: 8px 0; animation: pulse 1s infinite; color: #facc15; text-align: center; }
+        @keyframes pulse { 0% { opacity: 0.7; text-shadow: 0 0 0px gold; } 50% { opacity: 1; text-shadow: 0 0 6px gold; } 100% { opacity: 0.7; text-shadow: 0 0 0px gold; } }
+
+        .settings-panel { margin-top: 15px; background: rgba(0, 0, 0, 0.7); border-radius: 1.5rem; padding: 12px; display: none; flex-direction: column; gap: 10px; }
+        .settings-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+        input[type="range"] { width: 160px; }
+        .fps-counter { position: fixed; bottom: 10px; right: 10px; background: rgba(0,0,0,0.5); padding: 2px 8px; border-radius: 20px; font-size: 10px; z-index: 100; pointer-events: none; }
+
+        @media (max-width: 550px) {
+            .glass-card { padding: 1rem; }
+            .glass-btn { padding: 6px 12px; font-size: 0.75rem; }
+            .secret-word { font-size: 1.2rem; }
+            .word-image { font-size: 2rem; }
+            .avatar-option { font-size: 1.5rem; }
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    <div class="content">
+        <div class="glass-card">
+            <h2 style="color:white; text-align:center; margin-bottom: 6px;">🕵️ ШПИОН / АГЕНТ</h2>
+
+            <div class="avatar-selector animate-item delay-1" id="avatarSelector">
+                <div class="avatar-option" data-avatar="😀">😀</div>
+                <div class="avatar-option" data-avatar="😎">😎</div>
+                <div class="avatar-option" data-avatar="🕵️">🕵️</div>
+                <div class="avatar-option" data-avatar="👮">👮</div>
+                <div class="avatar-option" data-avatar="👩‍🍳">👩‍🍳</div>
+                <div class="avatar-option" data-avatar="🧙">🧙</div>
+                <div class="avatar-option" data-avatar="🐱">🐱</div>
+                <div class="avatar-option" data-avatar="🤖">🤖</div>
+                <div class="avatar-option" data-avatar="👽">👽</div>
+                <div class="avatar-option" data-avatar="💀">💀</div>
+            </div>
+
+            <div id="roleText" class="animate-item delay-2" style="font-size:1.2rem; font-weight:bold; text-align:center;">🎭 Ожидание</div>
+
+            <div class="word-card animate-item delay-3">
+                <div id="wordImage" class="word-image">❓</div>
+                <div id="wordReveal" class="secret-word">❓</div>
+            </div>
+
+            <div class="animate-item delay-4" style="display:flex; flex-wrap:wrap; justify-content:center;">
+                <button id="readyBtn" class="glass-btn btn-ready">✅ Я ГОТОВ</button>
+                <button id="passTurnBtn" class="glass-btn btn-turn">🔄 ПЕРЕДАТЬ ХОД</button>
+                <button id="voteBtn" class="glass-btn btn-vote">🗳️ ГОЛОСОВАТЬ</button>
+                <button id="guessWordBtn" class="glass-btn btn-guess">❓ УГАДАТЬ СЛОВО</button>
+            </div>
+
+            <div id="turnInfo" class="current-turn animate-item delay-5"></div>
+
+            <div class="animate-item delay-6"><strong>👥 ИГРОКИ</strong></div>
+            <div id="playersList" class="players-grid animate-item delay-7"></div>
+
+            <div class="animate-item delay-8"><strong>💬 ЧАТ</strong></div>
+            <div class="chat-log animate-item delay-8" id="chatLog"></div>
+            <div class="chat-input animate-item delay-9">
+                <input type="text" id="chatInput" placeholder="Сообщение...">
+                <button id="sendChatBtn" class="glass-btn">➤</button>
+            </div>
+
+            <div class="animate-item delay-9" style="margin-top: 10px;">
+                <button id="settingsBtn" class="glass-btn" style="width:100%;">⚙️ НАСТРОЙКИ</button>
+            </div>
+            <div id="settingsPanel" class="settings-panel">
+                <div class="settings-row">
+                    <span>✨ 3D-ТРЕУГОЛЬНИКИ:</span>
+                    <button id="toggleParticlesBtn" class="glass-btn" style="background:#22c55e;">ВЫКЛЮЧИТЬ</button>
+                </div>
+                <div class="settings-row">
+                    <span>💡 ЯРКОСТЬ СВЕЧЕНИЯ:</span>
+                    <input type="range" id="brightnessSlider" min="0" max="100" value="50">
+                    <span id="brightnessVal">50%</span>
+                </div>
+                <div class="settings-row">
+                    <span>🌀 СКОРОСТЬ ВРАЩЕНИЯ:</span>
+                    <input type="range" id="speedSlider" min="0" max="100" value="35">
+                    <span id="speedVal">35%</span>
+                </div>
+                <div class="settings-row">
+                    <span>📊 ПОКАЗЫВАТЬ FPS:</span>
+                    <input type="checkbox" id="showFpsToggle">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="fps-counter" id="fpsCounter" style="display: none;">FPS: 0</div>
+
+    <!-- Приветственный экран -->
+    <div id="introScreen" class="intro-screen">
+        <div class="intro-card">
+            <h1>👋 QUENTI</h1>
+            <p><strong>Сайт сделал:</strong> QUENTI (при участии DeepSeek)</p>
+            <p><strong>Био:</strong> Живу в РФ, люблю osu!mania, монтировать, кодить, скриптить, играть в Roblox, CS, Funky Friday.</p>
+            <h2>🤝 Друзья в Telegram:</h2>
+            <div class="friends-list">
+                <span class="friend-tag">@theprinse11</span>
+                <span class="friend-tag">@Dilemma_z</span>
+                <span class="friend-tag">@Fitosedits2</span>
+                <span class="friend-tag">@FoseJI</span>
+                <span class="friend-tag">@SK_SIGMA_71</span>
+            </div>
+            <h2>📖 О сайте</h2>
+            <div class="rule-text">
+                Это игра «Шпион». Сервера держатся на моём ПК.<br>
+                Каждому игроку даётся слово, а одному — роль Шпиона.<br>
+                Шпион должен догадаться о слове по вопросам и ответам игроков.<br>
+                Если Шпион уверен — он может нажать «Угадать слово» и ввести свой вариант.<br>
+                <strong>Правильный ответ = победа шпиона. Ошибка = победа агентов.</strong>
+            </div>
+            <button class="enter-btn" id="enterGameBtn">ВОЙТИ В ИГРУ</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // === ТОЧНО ТАКИЕ ЖЕ 3D ТРЕУГОЛЬНИКИ, КАК В host.html ===
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x050b1a);
+        scene.fog = new THREE.FogExp2(0x050b1a, 0.008);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 1.5, 14);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x050b1a, 1);
+        container.appendChild(renderer.domElement);
+
+        const createGradientTexture = (hue) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+            grad.addColorStop(0, `hsl(${hue}, 100%, 65%)`);
+            grad.addColorStop(0.5, `hsl(${hue - 10}, 90%, 55%)`);
+            grad.addColorStop(1, `hsl(${hue + 15}, 100%, 70%)`);
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.beginPath();
+            ctx.moveTo(canvas.width/2, 0);
+            ctx.lineTo(canvas.width, canvas.height);
+            ctx.lineTo(0, canvas.height);
+            ctx.fillStyle = `hsla(${hue}, 100%, 70%, 0.4)`;
+            ctx.fill();
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            return texture;
+        };
+
+        const extrudeSettings = { steps: 1, depth: 0.28, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.05, bevelSegments: 3 };
+        const shape = new THREE.Shape();
+        shape.moveTo(0, 0.72);
+        shape.lineTo(-0.65, -0.58);
+        shape.lineTo(0.65, -0.58);
+        shape.closePath();
+        const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+        geometry.computeVertexNormals();
+        geometry.center();
+
+        const trianglesGroup = new THREE.Group();
+        scene.add(trianglesGroup);
+        let triangles = [];
+        let particlesEnabled = true;
+        let globalBrightness = 0.5;
+        let globalSpeed = 0.35;
+        const triangleCount = window.innerWidth < 700 ? 80 : 110;
+
+        function getRandomDirection() {
+            return new THREE.Vector3(
+                (Math.random() - 0.5) * 1.4,
+                (Math.random() - 0.5) * 1.0,
+                (Math.random() - 0.5) * 1.0
+            ).normalize();
+        }
+
+        function createTriangle() {
+            const hue = 180 + Math.random() * 180;
+            const texture = createGradientTexture(hue);
+            const material = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.3, metalness: 0.7, emissive: `hsl(${hue}, 80%, 50%)`, emissiveIntensity: globalBrightness });
+            const mesh = new THREE.Mesh(geometry, material);
+            const scale = Math.random() * 0.65 + 0.35;
+            mesh.scale.set(scale, scale, scale);
+            mesh.position.x = (Math.random() - 0.5) * 28;
+            mesh.position.y = (Math.random() - 0.5) * 18;
+            mesh.position.z = (Math.random() - 0.5) * 20 - 8;
+            mesh.castShadow = true;
+            mesh.userData = {
+                originalPos: mesh.position.clone(),
+                velocity: new THREE.Vector3(0, 0, 0),
+                active: true,
+                rotSpeedX: (Math.random() - 0.5) * 0.004 * globalSpeed,
+                rotSpeedY: (Math.random() - 0.5) * 0.004 * globalSpeed,
+                rotSpeedZ: (Math.random() - 0.5) * 0.004 * globalSpeed
+            };
+            return mesh;
+        }
+
+        function initTriangles() {
+            triangles.forEach(t => trianglesGroup.remove(t));
+            triangles = [];
+            for (let i = 0; i < triangleCount; i++) {
+                const tri = createTriangle();
+                trianglesGroup.add(tri);
+                triangles.push(tri);
+            }
+        }
+        initTriangles();
+
+        const ambientLight = new THREE.AmbientLight(0x404060);
+        scene.add(ambientLight);
+        const mainLight = new THREE.DirectionalLight(0xffffff, 1);
+        mainLight.position.set(1.5, 2.5, 1.5);
+        scene.add(mainLight);
+        const fillLight = new THREE.PointLight(0x6688ff, 0.45);
+        fillLight.position.set(-1, 1, 2);
+        scene.add(fillLight);
+        const backLight = new THREE.PointLight(0xffaa66, 0.35);
+        backLight.position.set(0, 1, -5);
+        scene.add(backLight);
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let time = 0;
+
+        window.addEventListener('mousemove', (event) => {
+            if (!particlesEnabled) return;
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(triangles);
+            intersects.forEach(intersect => {
+                const tri = intersect.object;
+                if (tri.userData.active) {
+                    const dir = getRandomDirection().multiplyScalar(0.45);
+                    tri.userData.velocity = dir;
+                    tri.userData.active = false;
+                }
+            });
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            time += 0.008;
+            if (particlesEnabled) {
+                for (let i = 0; i < triangles.length; i++) {
+                    const tri = triangles[i];
+                    if (tri.userData.active) {
+                        tri.rotateX(tri.userData.rotSpeedX);
+                        tri.rotateY(tri.userData.rotSpeedY);
+                        tri.rotateZ(tri.userData.rotSpeedZ);
+                        tri.position.y += Math.sin(time * 0.6) * 0.002;
+                    } else {
+                        tri.userData.velocity.multiplyScalar(0.99);
+                        tri.position.x += tri.userData.velocity.x * 0.08;
+                        tri.position.y += tri.userData.velocity.y * 0.08;
+                        tri.position.z += tri.userData.velocity.z * 0.08;
+                        if (Math.abs(tri.userData.velocity.x) < 0.01 && Math.abs(tri.userData.velocity.y) < 0.01 && Math.abs(tri.userData.velocity.z) < 0.01) {
+                            tri.userData.active = true;
+                            tri.userData.velocity.set(0, 0, 0);
+                        }
+                    }
+                }
+            }
+            trianglesGroup.rotation.y = Math.sin(time * 0.03) * 0.08;
+            trianglesGroup.rotation.x = Math.sin(time * 0.04) * 0.05;
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Настройки (как в host.html)
+        const toggleBtn = document.getElementById('toggleParticlesBtn');
+        const brightnessSlider = document.getElementById('brightnessSlider');
+        const brightnessVal = document.getElementById('brightnessVal');
+        const speedSlider = document.getElementById('speedSlider');
+        const speedVal = document.getElementById('speedVal');
+        const showFpsToggle = document.getElementById('showFpsToggle');
+        const fpsCounterDiv = document.getElementById('fpsCounter');
+
+        toggleBtn.onclick = () => {
+            particlesEnabled = !particlesEnabled;
+            toggleBtn.textContent = particlesEnabled ? 'ВЫКЛЮЧИТЬ' : 'ВКЛЮЧИТЬ';
+            toggleBtn.style.background = particlesEnabled ? '#22c55e' : '#ef4444';
+            triangles.forEach(t => t.visible = particlesEnabled);
+        };
+        brightnessSlider.oninput = () => {
+            globalBrightness = brightnessSlider.value / 100;
+            brightnessVal.textContent = brightnessSlider.value + '%';
+            triangles.forEach(t => t.material.emissiveIntensity = globalBrightness);
+        };
+        speedSlider.oninput = () => {
+            globalSpeed = speedSlider.value / 100;
+            speedVal.textContent = speedSlider.value + '%';
+            triangles.forEach(t => {
+                t.userData.rotSpeedX = (Math.random() - 0.5) * 0.004 * globalSpeed;
+                t.userData.rotSpeedY = (Math.random() - 0.5) * 0.004 * globalSpeed;
+                t.userData.rotSpeedZ = (Math.random() - 0.5) * 0.004 * globalSpeed;
+            });
+        };
+        document.getElementById('settingsBtn').onclick = () => {
+            const panel = document.getElementById('settingsPanel');
+            panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+        };
+
+        // Счётчик FPS
+        let lastTimeFPS = performance.now();
+        let frames = 0;
+        function updateFPS() {
+            frames++;
+            const now = performance.now();
+            if (now - lastTimeFPS >= 1000) {
+                if (showFpsToggle.checked) fpsCounterDiv.style.display = 'block';
+                else fpsCounterDiv.style.display = 'none';
+                fpsCounterDiv.textContent = `FPS: ${frames}`;
+                frames = 0;
+                lastTimeFPS = now;
+            }
+            requestAnimationFrame(updateFPS);
+        }
+        updateFPS();
+    </script>
+
+    <script type="text/javascript">
+        // === ПРИВЕТСТВЕННЫЙ ЭКРАН ===
+        const introScreen = document.getElementById('introScreen');
+        const enterBtn = document.getElementById('enterGameBtn');
+        enterBtn.onclick = () => {
+            introScreen.style.opacity = '0';
+            setTimeout(() => introScreen.style.display = 'none', 500);
+        };
+
+        // === ИГРОВАЯ ЛОГИКА (как была) ===
+        const socket = io();
+
+        let selectedAvatar = '😀';
+        document.querySelectorAll('.avatar-option').forEach(el => {
+            el.onclick = () => {
+                selectedAvatar = el.dataset.avatar;
+                document.querySelectorAll('.avatar-option').forEach(a => a.classList.remove('selected-avatar'));
+                el.classList.add('selected-avatar');
+                socket.emit('update_avatar', selectedAvatar);
+            };
+        });
+        document.querySelector('.avatar-option').classList.add('selected-avatar');
+
+        let playerName = localStorage.getItem('spy_name');
+        if (!playerName) {
+            playerName = prompt("Введите ваше имя:", "Агент") || "Агент";
+            localStorage.setItem('spy_name', playerName);
+        }
+        socket.emit('register', { name: playerName, avatar: selectedAvatar });
+
+        let myReady = false;
+        document.getElementById('readyBtn').onclick = () => {
+            myReady = !myReady;
+            socket.emit('player_toggle_ready');
+            document.getElementById('readyBtn').innerHTML = myReady ? '❌ НЕ ГОТОВ' : '✅ Я ГОТОВ';
+        };
+
+        socket.on('players_update', (data) => {
+            const container = document.getElementById('playersList');
+            const arr = Object.values(data);
+            if (arr.length === 0) container.innerHTML = '✨ Ожидание игроков...';
+            else container.innerHTML = arr.map(p => `<div class="player-chip"><span>${p.avatar || '😀'}</span> ${escapeHtml(p.name)} ${p.ready ? '✅' : '⏳'}</div>`).join('');
+            if (data[socket.id]) myReady = data[socket.id].ready;
+            document.getElementById('readyBtn').innerHTML = myReady ? '❌ НЕ ГОТОВ' : '✅ Я ГОТОВ';
+        });
+
+        socket.on('your_role', (data) => {
+            if (data.isSpy) {
+                document.getElementById('roleText').innerHTML = '🕵️‍♂️ ВЫ — ШПИОН! 🕵️‍♀️';
+                document.getElementById('wordReveal').innerHTML = '❓ ❓ ❓';
+                document.getElementById('wordImage').innerHTML = '❓';
+            } else {
+                document.getElementById('roleText').innerHTML = '🔍 ВЫ — АГЕНТ';
+                document.getElementById('wordReveal').innerHTML = data.word;
+                document.getElementById('wordImage').innerHTML = data.wordImage || '📌';
+            }
+        });
+
+        socket.on('game_state', (state) => {
+            if (!state.active) {
+                document.getElementById('roleText').innerHTML = '🎭 ОЖИДАНИЕ РАУНДА';
+                document.getElementById('wordReveal').innerHTML = '❓';
+                document.getElementById('wordImage').innerHTML = '❓';
+                document.getElementById('turnInfo').innerHTML = '';
+            } else {
+                const isMyTurn = (state.currentTurn === socket.id);
+                document.getElementById('turnInfo').innerHTML = isMyTurn ? '🔥 ВАШ ХОД! НАЖМИТЕ «ПЕРЕДАТЬ ХОД» 🔥' : '⏳ СЕЙЧАС ХОДИТ ДРУГОЙ ИГРОК';
+            }
+        });
+
+        socket.on('chat_history', (msgs) => {
+            const log = document.getElementById('chatLog');
+            log.innerHTML = '';
+            msgs.forEach(m => log.innerHTML += `<div class="chat-message"><strong>${escapeHtml(m.name)}</strong> ${m.time}<br>${escapeHtml(m.text)}</div>`);
+        });
+
+        socket.on('chat_message', (m) => {
+            const log = document.getElementById('chatLog');
+            log.innerHTML += `<div class="chat-message"><strong>${escapeHtml(m.name)}</strong> ${m.time}<br>${escapeHtml(m.text)}</div>`;
+            log.scrollTop = log.scrollHeight;
+        });
+
+        socket.on('game_message', (msg) => {
+            const div = document.getElementById('gameMsg');
+            if (!div) {
+                const newDiv = document.createElement('div');
+                newDiv.id = 'gameMsg';
+                document.querySelector('.glass-card').appendChild(newDiv);
+            }
+            const msgDiv = document.getElementById('gameMsg');
+            msgDiv.innerHTML = `<div style="background:#dc2626;border-radius:1rem;padding:8px;margin:8px;">${escapeHtml(msg.text)}</div>`;
+            setTimeout(() => msgDiv.innerHTML = '', 4000);
+        });
+
+        socket.on('voting_start', (data) => {
+            alert(`🗳️ Началось голосование против: ${data.targetName}`);
+        });
+
+        document.getElementById('passTurnBtn').onclick = () => socket.emit('next_turn');
+        document.getElementById('voteBtn').onclick = () => {
+            socket.emit('get_players_for_vote', (response) => {
+                const playersList = Object.values(response);
+                if (playersList.length) {
+                    const target = prompt(`Голосование против кого? Введите имя:\n${playersList.map(p => p.name).join(', ')}`);
+                    if (target) {
+                        const found = playersList.find(p => p.name.toLowerCase() === target.toLowerCase().trim());
+                        if (found) socket.emit('start_vote', found.id);
+                        else alert('Игрок не найден');
+                    }
+                } else alert('Нет игроков для голосования');
+            });
+        };
+
+        document.getElementById('guessWordBtn').onclick = () => {
+            const guessedWord = prompt('Введите слово, которое, по вашему мнению, загадано:');
+            if (guessedWord && guessedWord.trim()) {
+                socket.emit('spy_guess', { word: guessedWord.trim() });
+            } else {
+                alert('Введите слово!');
+            }
+        };
+
+        document.getElementById('sendChatBtn').onclick = () => {
+            const inp = document.getElementById('chatInput');
+            if (inp.value.trim()) socket.emit('chat_message', { text: inp.value });
+            inp.value = '';
+        };
+        document.getElementById('chatInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') document.getElementById('sendChatBtn').click();
+        });
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/[&<>]/g, function (m) {
+                if (m === '&') return '&amp;';
+                if (m === '<') return '&lt;';
+                if (m === '>') return '&gt;';
+                return m;
+            });
+        }
+    </script>
+</body>
+</html>
